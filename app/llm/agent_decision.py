@@ -1,173 +1,85 @@
-
-import json
-
 from app.llm.openai_client import client
+from app.prompts.decision_prompt import DECISION_SYSTEM_PROMPT
 
 
 def decide_next_action(
     question: str,
     tool_history: list,
-    iteration: int,
+    validation_feedback: str = "",
 ) -> str:
     """
-    LLM-based Agent Decision.
+    Uses the LLM to decide what the agent should do next.
 
-    Decides whether the agent should:
-    - FINISH
-    - ANALYTICS
-    - ROUTE
+    Possible outputs:
+        SQL
+        RAG
+        ANALYTICS
+        FINISH
     """
 
     history_text = []
 
-    for i, result in enumerate(tool_history, start=1):
-
+    for result in tool_history:
         history_text.append(
             f"""
-Tool {i}:
-Name: {result.tool}
+Tool: {result.tool}
 Success: {result.success}
 Result: {result.result}
 Error: {result.error}
 """
         )
 
-    history_text = "\n".join(history_text)
+    history = "\n---\n".join(history_text)
 
-    prompt = f"""
-You are the decision-making component of an enterprise AI agent.
+    validation_context = ""
 
-Your task is to decide what the agent should do NEXT.
+    if validation_feedback:
+        validation_context = f"""
+Validation feedback:
 
-User question:
-{question}
+{validation_feedback}
 
-Tool history:
-{history_text}
+The previous answer was incomplete.
 
-Current iteration:
-{iteration}
-
-Available actions:
-
-FINISH
-Use FINISH ONLY when the user's ENTIRE question has already been
-answered by the available tool results.
-
-ANALYTICS
-Use ANALYTICS when:
-- the user asks about sales performance,
-- sales trends,
-- revenue,
-- sales statistics,
-- sales aggregation,
-- department sales performance,
-- employee sales performance,
-- numerical analysis,
-- statistics,
-- or any other business analytics.
-
-ROUTE
-Use ROUTE when the current tool was inappropriate and another
-tool should be selected.
-
-IMPORTANT RULES:
-
-1. Read the ENTIRE user question carefully.
-
-2. A question may contain MULTIPLE parts.
-
-3. If SQL answered only the employee/company information part,
-   but the question also asks for sales performance or analytics,
-   DO NOT FINISH.
-
-4. Example:
-
-User question:
-"Caner Tuzluca hangi departmanda çalışıyor ve bu departmanın
-satış performansı nedir?"
-
-If SQL result says:
-"Caner Tuzluca -> IT"
-
-Then SQL has answered ONLY the first part.
-
-The correct next action MUST be:
-
-ANALYTICS
-
-5. If the question contains the words or concepts:
-   "satış performansı",
-   "satış trendi",
-   "satış analizi",
-   "ciro",
-   "gelir",
-   "satış miktarı",
-   "satışları",
-   "performansı"
-   then ANALYTICS should be strongly preferred unless
-   the complete answer is already present in tool history.
-
-6. Never FINISH if an explicit analytics request remains unanswered.
-
-7. If SQL has already answered the question completely,
-   use FINISH.
-
-8. Never invent information.
-
-9. Never exceed 3 iterations.
-
-10. Return ONLY valid JSON.
-
-Expected output:
-
-{{
-    "action": "FINISH"
-}}
-
-or
-
-{{
-    "action": "ANALYTICS"
-}}
-
-or
-
-{{
-    "action": "ROUTE"
-}}
+You MUST select the tool required to obtain the missing information.
 """
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
+    prompt = f"""
+User Question:
+{question}
+
+Tools already executed:
+{history}
+
+{validation_context}
+
+Decide the next action.
+"""
+
+    response = client.responses.create(
+        model="gpt-4.1-mini",
+        input=[
             {
                 "role": "system",
-                "content": (
-                    "You are a precise agent decision engine. "
-                    "Return only valid JSON."
-                ),
+                "content": DECISION_SYSTEM_PROMPT,
             },
             {
                 "role": "user",
                 "content": prompt,
             },
         ],
-        temperature=0,
     )
 
-    content = response.choices[0].message.content.strip()
+    action = response.output_text.strip().upper()
 
-    try:
-        data = json.loads(content)
+    allowed_actions = {
+        "SQL",
+        "RAG",
+        "ANALYTICS",
+        "FINISH",
+    }
 
-        action = data.get("action")
+    if action not in allowed_actions:
+        return "FINISH"
 
-        if action in {"FINISH", "ANALYTICS", "ROUTE"}:
-            return action
-
-    except json.JSONDecodeError:
-        pass
-
-    # Safe fallback
-    return "FINISH"
+    return action

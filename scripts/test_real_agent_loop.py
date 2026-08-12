@@ -2,33 +2,54 @@
 from app.graph.workflow import graph
 
 
-question = "Caner Tuzluca hangi departmanda çalışıyor ve bu departmanın satış performansı nedir?"
+questions = [
+    (
+        "RAG",
+        "Çalışanların yıllık ücretli izin hakkı kaç gün?"
+    ),
+    (
+        "SQL",
+        "Caner Tuzluca hangi departmanda çalışıyor?"
+    ),
+    (
+        "ANALYTICS",
+        "IT departmanının satış performansı nedir?"
+    ),
+    (
+        "SQL + ANALYTICS",
+        "Caner Tuzluca hangi departmanda çalışıyor ve bu departmanın satış performansı nedir?"
+    ),
+    (
+        "RAG + SQL + ANALYTICS",
+        "Şirketin uzaktan çalışma politikası nedir ve IT departmanının satış performansı nasıldır?"
+    ),
+]
 
 
+for test_name, question in questions:
 
-result = graph.invoke({
-    "question": question,
-    "tool_history": [],
-    "iteration": 0,
-})
+    print()
+    print("=" * 70)
+    print(f"TEST: {test_name}")
+    print(f"QUESTION: {question}")
+    print("=" * 70)
 
+    result = graph.invoke({
+        "question": question,
+        "tool_history": [],
+        "iteration": 0,
+    })
 
-print()
-print("=" * 60)
+    print()
+    print("Tool History:")
 
-print("Question:")
-print(question)
+    for item in result.get("tool_history", []):
+        print(
+            f"- {item.tool}"
+        )
 
-print()
-print("Tool History:")
+    print()
+    print("Final Answer:")
+    print(result.get("final_answer"))
 
-for item in result.get("tool_history", []):
-    print(
-        f"- {item.tool}"
-    )
-
-print()
-print("Final Answer:")
-print(result.get("final_answer"))
-
-
+    

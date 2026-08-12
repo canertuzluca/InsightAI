@@ -1,4 +1,3 @@
-
 from typing import TypedDict, Any, List
 
 
@@ -20,4 +19,6 @@ class AgentState(TypedDict, total=False):
 
     context: dict
 
-    
+    validation_status: str
+
+    validation_feedback: str

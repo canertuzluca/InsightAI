@@ -1,3 +1,7 @@
+
+# Analytics Tool
+
+
 from app.database.query_executor import execute_query
 from app.models.tool_result import ToolResult
 
@@ -13,6 +17,10 @@ def analytics_tool(
 
     If department information is available in context,
     analytics are performed only for that department.
+
+    If the question explicitly requires a department-specific
+    analysis but the department context is missing, the tool
+    refuses to analyze all-company data.
     """
 
     try:
@@ -22,17 +30,69 @@ def analytics_tool(
 
         department = None
 
+        # --------------------------------------------------
+        # Extract department from SQL result
+        # --------------------------------------------------
+
         if sql_result:
             if isinstance(sql_result, list) and len(sql_result) > 0:
+
                 first_row = sql_result[0]
 
                 if isinstance(first_row, dict):
-                    department = (
-                        first_row.get("department_name")
-                        or first_row.get("name")
-                )
+
+                    # Ignore INSUFFICIENT_DATA
+                    if "?" not in first_row or first_row.get("?column?") != "INSUFFICIENT_DATA":
+
+                        department = (
+                            first_row.get("department_name")
+                            or first_row.get("name")
+                        )
+
+        question_lower = question.lower()
+
+        # --------------------------------------------------
+        # Detect department-specific questions
+        # --------------------------------------------------
+
+        department_keywords = [
+            "departman",
+            "departmanının",
+            "departmanındaki",
+            "department",
+        ]
+
+        department_specific = any(
+            keyword in question_lower
+            for keyword in department_keywords
+        )
+
+        # --------------------------------------------------
+        # Prevent accidental all-company analytics
+        # --------------------------------------------------
+
+        if department_specific and not department:
+
+            return ToolResult(
+                tool="ANALYTICS",
+                success=False,
+                result=None,
+                error=(
+                    "Departman bilgisi bulunamadığı için "
+                    "departman bazlı analiz gerçekleştirilemedi."
+                ),
+                metadata={
+                    "department": None,
+                    "requires_department": True,
+                }
+            )
+
+        # --------------------------------------------------
+        # Department-specific query
+        # --------------------------------------------------
 
         if department:
+
             query = """
             SELECT
                 s.sale_date,
@@ -54,7 +114,12 @@ def analytics_tool(
                 }
             )
 
+        # --------------------------------------------------
+        # General company-wide analytics
+        # --------------------------------------------------
+
         else:
+
             query = """
             SELECT
                 sale_date,
@@ -66,7 +131,12 @@ def analytics_tool(
 
             rows = execute_query(query)
 
+        # --------------------------------------------------
+        # No sales data
+        # --------------------------------------------------
+
         if not rows:
+
             return ToolResult(
                 tool="ANALYTICS",
                 success=False,
@@ -77,21 +147,41 @@ def analytics_tool(
                 }
             )
 
+        # --------------------------------------------------
+        # DataFrame
+        # --------------------------------------------------
+
         df = pd.DataFrame(rows)
 
-        df["sale_date"] = pd.to_datetime(df["sale_date"])
+        df["sale_date"] = pd.to_datetime(
+            df["sale_date"]
+        )
 
-        # Son 6 ay isteniyorsa
-        if "6 ay" in question.lower():
+        # --------------------------------------------------
+        # Last 6 months
+        # --------------------------------------------------
+
+        if "6 ay" in question_lower:
+
             max_date = df["sale_date"].max()
-            start_date = max_date - pd.DateOffset(months=6)
+
+            start_date = (
+                max_date -
+                pd.DateOffset(months=6)
+            )
 
             df = df[
                 (df["sale_date"] > start_date)
-                & (df["sale_date"] <= max_date)
+                &
+                (df["sale_date"] <= max_date)
             ]
 
+        # --------------------------------------------------
+        # Empty result after filtering
+        # --------------------------------------------------
+
         if df.empty:
+
             return ToolResult(
                 tool="ANALYTICS",
                 success=False,
@@ -102,16 +192,28 @@ def analytics_tool(
                 }
             )
 
-        # Temel istatistikler
+        # --------------------------------------------------
+        # Basic statistics
+        # --------------------------------------------------
+
         total_sales = len(df)
 
-        total_revenue = df["total_amount"].sum()
+        total_revenue = (
+            df["total_amount"].sum()
+        )
 
-        total_quantity = df["quantity"].sum()
+        total_quantity = (
+            df["quantity"].sum()
+        )
 
-        average_sale = df["total_amount"].mean()
+        average_sale = (
+            df["total_amount"].mean()
+        )
 
-        # Aylık satışlar
+        # --------------------------------------------------
+        # Monthly sales
+        # --------------------------------------------------
+
         monthly_sales = (
             df
             .set_index("sale_date")
@@ -119,25 +221,55 @@ def analytics_tool(
             .sum()
         )
 
-        highest_month = monthly_sales.idxmax()
-        highest_value = monthly_sales.max()
+        highest_month = (
+            monthly_sales.idxmax()
+        )
 
-        lowest_month = monthly_sales.idxmin()
-        lowest_value = monthly_sales.min()
+        highest_value = (
+            monthly_sales.max()
+        )
 
-        # İlk ve son ay karşılaştırması
-        first_month_value = monthly_sales.iloc[0]
-        last_month_value = monthly_sales.iloc[-1]
+        lowest_month = (
+            monthly_sales.idxmin()
+        )
+
+        lowest_value = (
+            monthly_sales.min()
+        )
+
+        # --------------------------------------------------
+        # Growth
+        # --------------------------------------------------
+
+        first_month_value = (
+            monthly_sales.iloc[0]
+        )
+
+        last_month_value = (
+            monthly_sales.iloc[-1]
+        )
 
         if first_month_value != 0:
+
             growth_percentage = (
-                (last_month_value - first_month_value)
-                / first_month_value
+                (
+                    last_month_value -
+                    first_month_value
+                )
+                /
+                first_month_value
             ) * 100
+
         else:
+
             growth_percentage = None
 
+        # --------------------------------------------------
+        # Result
+        # --------------------------------------------------
+
         result = {
+
             "department": department,
 
             "total_sales": total_sales,
@@ -188,7 +320,8 @@ def analytics_tool(
                     float(value),
                     2
                 )
-                for date, value in monthly_sales.items()
+                for date, value
+                in monthly_sales.items()
             }
         }
 
@@ -202,6 +335,7 @@ def analytics_tool(
         )
 
     except Exception as e:
+
         return ToolResult(
             tool="ANALYTICS",
             success=False,
@@ -211,5 +345,4 @@ def analytics_tool(
                 "department": department
             }
         )
-    
     

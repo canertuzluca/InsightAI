@@ -25,6 +25,7 @@ def search_documents(question: str, limit: int = 3):
                 "source": point.payload["source"],
                 "category": point.payload["category"],
                 "title": point.payload["title"],
+                "section": point.payload.get("section")
             }
         )
 
